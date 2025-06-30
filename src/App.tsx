@@ -6,6 +6,8 @@ import InvestmentForm from './components/InvestmentForm';
 import InvestmentList from './components/InvestmentList';
 import SummaryCards from './components/SummaryCards';
 import PortfolioView from './components/PortfolioView';
+import LivePrices from './components/LivePrices';
+import { priceService, PriceData } from './services/priceService';
 
 const COLORS = [
   '#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6',
@@ -40,18 +42,87 @@ const EXCHANGE_RATES = {
 function App() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'investments' | 'portfolio'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'investments' | 'portfolio' | 'prices'>('dashboard');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currencyFilter, setCurrencyFilter] = useState<'original' | 'USD'>('original');
   const [selectedCurrency, setSelectedCurrency] = useState<string>('all');
   const [selectedCountry, setSelectedCountry] = useState<string>('all');
   const [editingInvestment, setEditingInvestment] = useState<Investment | null>(null);
+  const [livePrices, setLivePrices] = useState<PriceData[]>([]);
+  const [priceLoading, setPriceLoading] = useState(false);
 
   // Load investments from server
   useEffect(() => {
     loadInvestments();
   }, []);
+
+  // Load live prices for investments
+  useEffect(() => {
+    if (investments.length > 0) {
+      loadLivePrices();
+    }
+  }, [investments]);
+
+  const loadLivePrices = async () => {
+    setPriceLoading(true);
+    try {
+      const pricePromises: Promise<PriceData | null>[] = [];
+      
+      investments.forEach(investment => {
+        if (investment.assetClass === 'ETF' || investment.assetClass === 'Stock') {
+          pricePromises.push(priceService.getPrice(investment.name, 'ETF'));
+        } else if (investment.assetClass === 'Cryptocurrency') {
+          pricePromises.push(priceService.getPrice(investment.name, 'Cryptocurrency'));
+        } else if (investment.assetClass === 'XAU') {
+          pricePromises.push(priceService.getPrice('XAU', 'XAU'));
+        }
+      });
+
+      const prices = await Promise.all(pricePromises);
+      const validPrices = prices.filter(price => price !== null) as PriceData[];
+      setLivePrices(validPrices);
+    } catch (error) {
+      console.error('Error loading live prices:', error);
+    } finally {
+      setPriceLoading(false);
+    }
+  };
+
+  // Get current market value for an investment
+  const getCurrentMarketValue = (investment: Investment): number => {
+    if (!investment.quantity || !investment.pricePerUnit) {
+      return investment.amount; // Fallback to stored amount
+    }
+
+    const livePrice = livePrices.find(price => 
+      price.symbol === investment.name || 
+      (investment.assetClass === 'XAU' && price.symbol === 'XAU')
+    );
+
+    if (livePrice) {
+      return investment.quantity * livePrice.price;
+    }
+
+    // Fallback to stored price per unit
+    return investment.quantity * investment.pricePerUnit;
+  };
+
+  // Calculate growth for an investment
+  const calculateGrowth = (investment: Investment): { amount: number; percentage: number } | null => {
+    if (!investment.originalPrice || investment.originalPrice <= 0) {
+      return null;
+    }
+
+    const currentValue = getCurrentMarketValue(investment);
+    const growthAmount = currentValue - investment.originalPrice;
+    const growthPercentage = (growthAmount / investment.originalPrice) * 100;
+
+    return {
+      amount: growthAmount,
+      percentage: growthPercentage
+    };
+  };
 
   const loadInvestments = async () => {
     try {
@@ -138,32 +209,48 @@ function App() {
     }
     
     let totalValue: number;
+    let totalGrowth = 0;
+    let totalOriginalValue = 0;
     
     if (currencyFilter === 'USD') {
       // Convert all amounts to USD
       totalValue = filteredInvestments.reduce((sum, inv) => {
-        return sum + convertToUSD(inv.amount, inv.currency);
+        const currentValue = getCurrentMarketValue(inv);
+        return sum + convertToUSD(currentValue, inv.currency);
       }, 0);
+
+      // Calculate growth in USD
+      filteredInvestments.forEach(inv => {
+        if (inv.originalPrice && inv.originalPrice > 0) {
+          const currentValue = getCurrentMarketValue(inv);
+          const originalValueUSD = convertToUSD(inv.originalPrice, inv.currency);
+          const currentValueUSD = convertToUSD(currentValue, inv.currency);
+          totalGrowth += currentValueUSD - originalValueUSD;
+          totalOriginalValue += originalValueUSD;
+        }
+      });
     } else {
-      // Keep original currencies, just sum the amounts
-      totalValue = filteredInvestments.reduce((sum, inv) => sum + Number(inv.amount), 0);
+      // Keep original currencies
+      totalValue = filteredInvestments.reduce((sum, inv) => {
+        const currentValue = getCurrentMarketValue(inv);
+        return sum + currentValue;
+      }, 0);
+
+      // Calculate growth in original currencies
+      filteredInvestments.forEach(inv => {
+        if (inv.originalPrice && inv.originalPrice > 0) {
+          const currentValue = getCurrentMarketValue(inv);
+          totalGrowth += currentValue - inv.originalPrice;
+          totalOriginalValue += inv.originalPrice;
+        }
+      });
     }
 
     const countries = [...new Set(filteredInvestments.map(inv => inv.country))];
     const currencies = [...new Set(filteredInvestments.map(inv => inv.currency))];
     const assetClasses = [...new Set(filteredInvestments.map(inv => inv.assetClass))];
 
-    // Calculate growth statistics
-    const investmentsWithGrowth = filteredInvestments.filter(inv => inv.originalPrice && inv.originalPrice > 0);
-    let totalGrowth = 0;
-    let averageGrowth = 0;
-
-    if (investmentsWithGrowth.length > 0) {
-      const totalOriginalValue = investmentsWithGrowth.reduce((sum, inv) => sum + Number(inv.originalPrice || 0), 0);
-      const totalCurrentValue = investmentsWithGrowth.reduce((sum, inv) => sum + Number(inv.amount), 0);
-      totalGrowth = totalCurrentValue - totalOriginalValue;
-      averageGrowth = totalGrowth / totalOriginalValue * 100;
-    }
+    const averageGrowth = totalOriginalValue > 0 ? (totalGrowth / totalOriginalValue) * 100 : 0;
 
     return {
       totalValue,
@@ -370,6 +457,13 @@ function App() {
     }
   };
 
+  const handlePriceSelect = (symbol: string, price: number, assetType: string) => {
+    // Auto-fill the investment form with selected price
+    setShowForm(true);
+    // You can pass this data to the form component
+    console.log(`Selected ${symbol} at $${price} for ${assetType}`);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -461,6 +555,17 @@ function App() {
                 <PieChartIcon className="h-4 w-4 inline mr-2" />
                 Portfolio
               </button>
+              <button
+                onClick={() => setActiveTab('prices')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'prices'
+                    ? 'border-primary-500 text-primary-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <PieChartIcon className="h-4 w-4 inline mr-2" />
+                Live Prices
+              </button>
             </div>
             
             {/* Currency Filter */}
@@ -523,7 +628,10 @@ function App() {
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         {activeTab === 'dashboard' ? (
           <div className="space-y-6">
-            <SummaryCards stats={stats} currencyFilter={currencyFilter} formatCurrency={formatCurrency} />
+            <SummaryCards 
+              stats={getSummaryStats()} 
+              currencyFilter={currencyFilter}
+            />
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Asset Class Allocation */}
@@ -608,13 +716,25 @@ function App() {
             investments={investments}
             onDelete={deleteInvestment}
             onEdit={handleEdit}
+            currencyFilter={currencyFilter}
+            selectedCurrency={selectedCurrency}
+            selectedCountry={selectedCountry}
+            livePrices={livePrices}
+            priceLoading={priceLoading}
           />
-        ) : (
+        ) : activeTab === 'portfolio' ? (
           <PortfolioView 
             investments={investments}
             convertToUSD={convertToUSD}
             formatCurrency={formatCurrency}
             formatTooltipValue={formatTooltipValue}
+          />
+        ) : (
+          <LivePrices
+            investments={investments}
+            livePrices={livePrices}
+            priceLoading={priceLoading}
+            onPriceSelect={handlePriceSelect}
           />
         )}
       </main>

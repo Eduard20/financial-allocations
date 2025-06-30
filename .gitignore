@@ -1,4 +1,6 @@
 .idea/
 node_modules/
 investments.json
-.env
+investments.encrypted.json
+investments.json.backup
+.env*

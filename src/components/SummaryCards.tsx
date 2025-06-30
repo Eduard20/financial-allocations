@@ -1,84 +1,115 @@
 import React from 'react';
-import { DollarSign, Building2, Globe, TrendingUp, TrendingDown } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Building2, Globe, PieChart } from 'lucide-react';
 import { SummaryStats } from '../types';
 
 interface SummaryCardsProps {
   stats: SummaryStats;
   currencyFilter: 'original' | 'USD';
-  formatCurrency: (value: number) => string;
 }
 
-const SummaryCards: React.FC<SummaryCardsProps> = ({ stats, currencyFilter, formatCurrency }) => {
-  const cards = [
-    {
-      title: 'Total Portfolio Value',
-      value: formatCurrency(stats.totalValue),
-      icon: DollarSign,
-      color: 'text-green-600',
-      bgColor: 'bg-green-100'
-    },
-    {
-      title: 'Total Investments',
-      value: stats.totalInvestments.toString(),
-      icon: Building2,
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-100'
-    },
-    {
-      title: 'Countries',
-      value: stats.countries.length.toString(),
-      icon: Globe,
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-100'
-    },
-    {
-      title: 'Asset Classes',
-      value: stats.assetClasses.length.toString(),
-      icon: TrendingUp,
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-100'
+export default function SummaryCards({ stats, currencyFilter }: SummaryCardsProps) {
+  const formatCurrency = (amount: number): string => {
+    if (currencyFilter === 'USD') {
+      return `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
-  ];
+    return amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
 
-  // Add growth card if growth data is available
-  if (stats.totalGrowth !== undefined && stats.averageGrowth !== undefined) {
-    cards.push({
-      title: 'Portfolio Growth',
-      value: `${stats.averageGrowth >= 0 ? '+' : ''}${stats.averageGrowth.toFixed(1)}%`,
-      icon: stats.averageGrowth >= 0 ? TrendingUp : TrendingDown,
-      color: stats.averageGrowth >= 0 ? 'text-green-600' : 'text-red-600',
-      bgColor: stats.averageGrowth >= 0 ? 'bg-green-100' : 'bg-red-100'
-    });
-  }
+  const formatGrowth = (growth: number): string => {
+    const sign = growth >= 0 ? '+' : '';
+    return `${sign}${growth.toFixed(2)}%`;
+  };
+
+  const getGrowthColor = (growth: number): string => {
+    return growth >= 0 ? 'text-green-600' : 'text-red-600';
+  };
+
+  const getGrowthIcon = (growth: number) => {
+    return growth >= 0 ? 
+      <TrendingUp className="h-5 w-5 text-green-600" /> : 
+      <TrendingDown className="h-5 w-5 text-red-600" />;
+  };
 
   return (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
-      {cards.map((card, index) => {
-        const IconComponent = card.icon;
-        return (
-          <div key={index} className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className={`flex-shrink-0 ${card.bgColor} rounded-md p-3`}>
-                  <IconComponent className={`h-6 w-6 ${card.color}`} />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">
-                      {card.title}
-                    </dt>
-                    <dd className="text-lg font-medium text-gray-900">
-                      {card.value}
-                    </dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      {/* Total Portfolio Value */}
+      <div className="bg-white shadow rounded-lg p-6">
+        <div className="flex items-center">
+          <div className="flex-shrink-0">
+            <DollarSign className="h-8 w-8 text-blue-600" />
           </div>
-        );
-      })}
+          <div className="ml-4">
+            <p className="text-sm font-medium text-gray-500">
+              Total Value ({currencyFilter === 'USD' ? 'USD' : 'Original'})
+            </p>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatCurrency(stats.totalValue)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Total Growth */}
+      <div className="bg-white shadow rounded-lg p-6">
+        <div className="flex items-center">
+          <div className="flex-shrink-0">
+            {stats.averageGrowth !== undefined ? getGrowthIcon(stats.averageGrowth) : <DollarSign className="h-5 w-5 text-gray-400" />}
+          </div>
+          <div className="ml-4">
+            <p className="text-sm font-medium text-gray-500">Total Growth</p>
+            {stats.averageGrowth !== undefined ? (
+              <>
+                <p className={`text-2xl font-bold ${getGrowthColor(stats.averageGrowth)}`}>
+                  {formatGrowth(stats.averageGrowth)}
+                </p>
+                {stats.totalGrowth !== undefined && (
+                  <p className="text-sm text-gray-500">
+                    {formatCurrency(stats.totalGrowth)} {currencyFilter === 'USD' ? 'USD' : ''}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-2xl font-bold text-gray-400">N/A</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Number of Investments */}
+      <div className="bg-white shadow rounded-lg p-6">
+        <div className="flex items-center">
+          <div className="flex-shrink-0">
+            <PieChart className="h-8 w-8 text-green-600" />
+          </div>
+          <div className="ml-4">
+            <p className="text-sm font-medium text-gray-500">Investments</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {stats.totalInvestments}
+            </p>
+            <p className="text-sm text-gray-500">
+              {stats.assetClasses.length} asset classes
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Geographic Diversity */}
+      <div className="bg-white shadow rounded-lg p-6">
+        <div className="flex items-center">
+          <div className="flex-shrink-0">
+            <Globe className="h-8 w-8 text-purple-600" />
+          </div>
+          <div className="ml-4">
+            <p className="text-sm font-medium text-gray-500">Countries</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {stats.countries.length}
+            </p>
+            <p className="text-sm text-gray-500">
+              {stats.currencies.length} currencies
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
-};
-
-export default SummaryCards; 
+} 
