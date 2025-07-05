@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-import { Plus, BarChart3, DollarSign, Building2, Filter, Globe, PieChart as PieChartIcon } from 'lucide-react';
+import { Plus, BarChart3, DollarSign, Building2, Filter, PieChart as PieChartIcon, Calendar } from 'lucide-react';
 import { Investment, AllocationData, SummaryStats } from './types';
 import InvestmentForm from './components/InvestmentForm';
 import InvestmentList from './components/InvestmentList';
 import SummaryCards from './components/SummaryCards';
 import PortfolioView from './components/PortfolioView';
-import LivePrices from './components/LivePrices';
-import { priceService, PriceData } from './services/priceService';
+import MaturityEarnings from './components/MaturityEarnings';
 
 const COLORS = [
   '#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6',
@@ -42,87 +41,22 @@ const EXCHANGE_RATES = {
 function App() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'investments' | 'portfolio' | 'prices'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'investments' | 'portfolio' | 'maturity'>('dashboard');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currencyFilter, setCurrencyFilter] = useState<'original' | 'USD'>('original');
   const [selectedCurrency, setSelectedCurrency] = useState<string>('all');
   const [selectedCountry, setSelectedCountry] = useState<string>('all');
   const [editingInvestment, setEditingInvestment] = useState<Investment | null>(null);
-  const [livePrices, setLivePrices] = useState<PriceData[]>([]);
-  const [priceLoading, setPriceLoading] = useState(false);
 
   // Load investments from server
   useEffect(() => {
     loadInvestments();
   }, []);
 
-  // Load live prices for investments
-  useEffect(() => {
-    if (investments.length > 0) {
-      loadLivePrices();
-    }
-  }, [investments]);
 
-  const loadLivePrices = async () => {
-    setPriceLoading(true);
-    try {
-      const pricePromises: Promise<PriceData | null>[] = [];
-      
-      investments.forEach(investment => {
-        if (investment.assetClass === 'ETF' || investment.assetClass === 'Stock') {
-          pricePromises.push(priceService.getPrice(investment.name, 'ETF'));
-        } else if (investment.assetClass === 'Cryptocurrency') {
-          pricePromises.push(priceService.getPrice(investment.name, 'Cryptocurrency'));
-        } else if (investment.assetClass === 'XAU') {
-          pricePromises.push(priceService.getPrice('XAU', 'XAU'));
-        }
-      });
 
-      const prices = await Promise.all(pricePromises);
-      const validPrices = prices.filter(price => price !== null) as PriceData[];
-      setLivePrices(validPrices);
-    } catch (error) {
-      console.error('Error loading live prices:', error);
-    } finally {
-      setPriceLoading(false);
-    }
-  };
 
-  // Get current market value for an investment
-  const getCurrentMarketValue = (investment: Investment): number => {
-    if (!investment.quantity || !investment.pricePerUnit) {
-      return investment.amount; // Fallback to stored amount
-    }
-
-    const livePrice = livePrices.find(price => 
-      price.symbol === investment.name || 
-      (investment.assetClass === 'XAU' && price.symbol === 'XAU')
-    );
-
-    if (livePrice) {
-      return investment.quantity * livePrice.price;
-    }
-
-    // Fallback to stored price per unit
-    return investment.quantity * investment.pricePerUnit;
-  };
-
-  // Calculate growth for an investment
-  const calculateGrowth = (investment: Investment): { amount: number; percentage: number } | null => {
-    if (!investment.originalPrice || investment.originalPrice <= 0) {
-      return null;
-    }
-
-    const currentValue = getCurrentMarketValue(investment);
-    const growthAmount = currentValue - investment.originalPrice;
-    const growthPercentage = (growthAmount / investment.originalPrice) * 100;
-
-    return {
-      amount: growthAmount,
-      percentage: growthPercentage
-    };
-  };
 
   const loadInvestments = async () => {
     try {
@@ -215,16 +149,14 @@ function App() {
     if (currencyFilter === 'USD') {
       // Convert all amounts to USD
       totalValue = filteredInvestments.reduce((sum, inv) => {
-        const currentValue = getCurrentMarketValue(inv);
-        return sum + convertToUSD(currentValue, inv.currency);
+        return sum + convertToUSD(inv.amount, inv.currency);
       }, 0);
 
       // Calculate growth in USD
       filteredInvestments.forEach(inv => {
         if (inv.originalPrice && inv.originalPrice > 0) {
-          const currentValue = getCurrentMarketValue(inv);
           const originalValueUSD = convertToUSD(inv.originalPrice, inv.currency);
-          const currentValueUSD = convertToUSD(currentValue, inv.currency);
+          const currentValueUSD = convertToUSD(inv.amount, inv.currency);
           totalGrowth += currentValueUSD - originalValueUSD;
           totalOriginalValue += originalValueUSD;
         }
@@ -232,15 +164,13 @@ function App() {
     } else {
       // Keep original currencies
       totalValue = filteredInvestments.reduce((sum, inv) => {
-        const currentValue = getCurrentMarketValue(inv);
-        return sum + currentValue;
+        return sum + inv.amount;
       }, 0);
 
       // Calculate growth in original currencies
       filteredInvestments.forEach(inv => {
         if (inv.originalPrice && inv.originalPrice > 0) {
-          const currentValue = getCurrentMarketValue(inv);
-          totalGrowth += currentValue - inv.originalPrice;
+          totalGrowth += inv.amount - inv.originalPrice;
           totalOriginalValue += inv.originalPrice;
         }
       });
@@ -408,7 +338,6 @@ function App() {
   const availableCurrencies = [...new Set(investments.map(inv => inv.currency))].sort();
   const availableCountries = [...new Set(investments.map(inv => inv.country))].sort();
 
-  const stats = getSummaryStats();
   const assetClassData = getAssetClassAllocation();
   const countryData = getCountryAllocation();
 
@@ -457,12 +386,7 @@ function App() {
     }
   };
 
-  const handlePriceSelect = (symbol: string, price: number, assetType: string) => {
-    // Auto-fill the investment form with selected price
-    setShowForm(true);
-    // You can pass this data to the form component
-    console.log(`Selected ${symbol} at $${price} for ${assetType}`);
-  };
+
 
   if (loading) {
     return (
@@ -556,15 +480,15 @@ function App() {
                 Portfolio
               </button>
               <button
-                onClick={() => setActiveTab('prices')}
+                onClick={() => setActiveTab('maturity')}
                 className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'prices'
+                  activeTab === 'maturity'
                     ? 'border-primary-500 text-primary-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                <PieChartIcon className="h-4 w-4 inline mr-2" />
-                Live Prices
+                <Calendar className="h-4 w-4 inline mr-2" />
+                Maturity Earnings
               </button>
             </div>
             
@@ -719,8 +643,6 @@ function App() {
             currencyFilter={currencyFilter}
             selectedCurrency={selectedCurrency}
             selectedCountry={selectedCountry}
-            livePrices={livePrices}
-            priceLoading={priceLoading}
           />
         ) : activeTab === 'portfolio' ? (
           <PortfolioView 
@@ -730,11 +652,11 @@ function App() {
             formatTooltipValue={formatTooltipValue}
           />
         ) : (
-          <LivePrices
+          <MaturityEarnings
             investments={investments}
-            livePrices={livePrices}
-            priceLoading={priceLoading}
-            onPriceSelect={handlePriceSelect}
+            convertToUSD={convertToUSD}
+            formatCurrency={formatCurrency}
+            formatTooltipValue={formatTooltipValue}
           />
         )}
       </main>

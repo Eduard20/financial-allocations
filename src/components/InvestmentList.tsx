@@ -1,7 +1,6 @@
 import React from 'react';
 import { Edit, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
 import { Investment } from '../types';
-import { PriceData } from '../services/priceService';
 
 interface InvestmentListProps {
   investments: Investment[];
@@ -10,8 +9,6 @@ interface InvestmentListProps {
   currencyFilter: 'original' | 'USD';
   selectedCurrency: string;
   selectedCountry: string;
-  livePrices?: PriceData[];
-  priceLoading?: boolean;
 }
 
 export default function InvestmentList({ 
@@ -20,25 +17,13 @@ export default function InvestmentList({
   onEdit, 
   currencyFilter, 
   selectedCurrency, 
-  selectedCountry,
-  livePrices = [],
-  priceLoading = false
+  selectedCountry
 }: InvestmentListProps) {
-  // Get current market value for an investment
+  // Get current market value for an investment using stored amounts
   const getCurrentMarketValue = (investment: Investment): number => {
     if (!investment.quantity || !investment.pricePerUnit) {
       return investment.amount;
     }
-
-    const livePrice = livePrices.find(price => 
-      price.symbol === investment.name || 
-      (investment.assetClass === 'XAU' && price.symbol === 'XAU')
-    );
-
-    if (livePrice) {
-      return investment.quantity * livePrice.price;
-    }
-
     return investment.quantity * investment.pricePerUnit;
   };
 
@@ -102,9 +87,6 @@ export default function InvestmentList({
     <div className="bg-white shadow rounded-lg overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200">
         <h3 className="text-lg font-semibold text-gray-900">Your Investments</h3>
-        {priceLoading && (
-          <p className="text-sm text-gray-500 mt-1">Updating live prices...</p>
-        )}
       </div>
       
       <div className="overflow-x-auto">
